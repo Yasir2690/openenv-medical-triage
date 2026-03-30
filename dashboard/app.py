@@ -1,61 +1,9 @@
-"""
-Medical Triage Environment - Gradio Dashboard
-"""
-
-import gradio as gr
-import pandas as pd
-import sys
-import os
-import random
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.environment import MedicalTriageEnv
-from src.models import TriageAction
-
-class TriageDashboard:
-    def __init__(self):
-        self.env = MedicalTriageEnv(max_steps=50, random_seed=42)
-        self.reset()
-    
-    def reset(self):
-        self.observation = self.env.reset()
-        return self.get_data()
-    
-    def step(self):
-        if self.observation.waiting_patients:
-            patient = random.choice(self.observation.waiting_patients)
-            action = TriageAction(
-                patient_id=patient.id,
-                esi_level=random.choice([1, 2, 3, 4, 5]),
-                assigned_room=random.choice(self.observation.available_rooms) if self.observation.available_rooms else None,
-                assigned_doctor_id=random.choice(list(self.observation.available_doctors.keys())) if self.observation.available_doctors else None,
-                order_tests=[],
-                initiate_resuscitation=False
-            )
-            self.observation, reward, done, info = self.env.step(action)
-        return self.get_data()
-    
-    def get_data(self):
-        waiting = []
-        for p in self.observation.waiting_patients[:5]:
-            waiting.append([p.id[:8], p.age, p.chief_complaint.value[:15], f"{p.wait_time_minutes:.0f}min" if p.wait_time_minutes else "N/A"])
-        
-        resources = {
-            "Total Patients": self.observation.total_patients,
-            "Waiting": len(self.observation.waiting_patients),
-            "Triaged": len(self.observation.triaged_patients),
-            "Active": len(self.observation.active_patients),
-            "LWBS Rate": f"{self.observation.lwbs_rate:.1%}",
-            "Rooms Available": len(self.observation.available_rooms),
-            "Doctors Available": len(self.observation.available_doctors)
-        }
-        return waiting, resources
-
 def create_dashboard():
     dashboard = TriageDashboard()
     
-    with gr.Blocks(title="Medical Triage Environment", theme=gr.themes.Soft()) as demo:
+    demo = gr.Blocks(title="Medical Triage Environment")
+    
+    with demo:
         gr.Markdown("# 🏥 Medical Triage Environment")
         gr.Markdown("### AI Agent Training for Emergency Department Triage")
         gr.Markdown("This dashboard simulates an AI agent managing patient triage. Click 'Take Random Action' to see the agent make decisions.")
@@ -103,7 +51,3 @@ def create_dashboard():
         step_btn.click(fn=step_and_update, outputs=[patient_table, resource_table])
     
     return demo
-
-if __name__ == "__main__":
-    demo = create_dashboard()
-    demo.launch(server_name="0.0.0.0", server_port=7860)
