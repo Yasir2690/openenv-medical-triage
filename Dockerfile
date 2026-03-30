@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 7860
 
-CMD ["python", "-c", "from dashboard.app import create_dashboard; demo = create_dashboard(); demo.launch(server_name='0.0.0.0', server_port=7860)"]
+CMD ["python", "/app/dashboard/app.py"]
