@@ -1,83 +1,68 @@
 """
-Medical Triage Environment - Gradio Dashboard with OpenEnv Endpoints
+Medical Triage Environment - Simple Working Version
 """
 
 import gradio as gr
 import pandas as pd
 import sys
 import os
-import json
 import random
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+import json
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.environment import MedicalTriageEnv
-from src.models import TriageAction, TriageObservation, TriageReward
+from src.models import TriageAction
 
-# Create FastAPI app for OpenEnv endpoints
-app = FastAPI(title="Medical Triage Environment", version="1.0.0")
-
-# Initialize environment
+# Initialize
 env = MedicalTriageEnv(max_steps=50, random_seed=42)
 observation = env.reset()
 
-# OpenEnv API Models
-class ResetResponse(BaseModel):
-    status: str
-    observation: dict
-
-class StepRequest(BaseModel):
-    action: dict
-
-class StepResponse(BaseModel):
-    observation: dict
-    reward: float
-    done: bool
-    info: dict
+# Create FastAPI app
+app = FastAPI(title="Medical Triage Environment")
 
 # OpenEnv Endpoints
 @app.post("/reset")
 async def reset_endpoint():
-    """OpenEnv reset endpoint - POST method"""
     global observation
     observation = env.reset()
     return JSONResponse(content={"status": "ok", "observation": observation.dict()})
 
 @app.post("/step")
-async def step_endpoint(request: dict):
-    """OpenEnv step endpoint - POST method"""
+async def step_endpoint(request: Request):
     global observation
-    # Handle both direct dict and {action: {...}} format
-    if "action" in request:
-        action_data = request["action"]
-    else:
-        action_data = request
-    
-    action = TriageAction(
-        patient_id=action_data.get("patient_id", ""),
-        esi_level=action_data.get("esi_level"),
-        assigned_room=action_data.get("assigned_room"),
-        assigned_doctor_id=action_data.get("assigned_doctor_id"),
-        order_tests=action_data.get("order_tests", []),
-        initiate_resuscitation=action_data.get("initiate_resuscitation", False)
-    )
-    observation, reward, done, info = env.step(action)
-    return JSONResponse(content={
-        "observation": observation.dict(),
-        "reward": reward.total,
-        "done": done,
-        "info": info
-    })
+    try:
+        body = await request.json()
+        if "action" in body:
+            action_data = body["action"]
+        else:
+            action_data = body
+        
+        action = TriageAction(
+            patient_id=action_data.get("patient_id", ""),
+            esi_level=action_data.get("esi_level"),
+            assigned_room=action_data.get("assigned_room"),
+            assigned_doctor_id=action_data.get("assigned_doctor_id"),
+            order_tests=action_data.get("order_tests", []),
+            initiate_resuscitation=action_data.get("initiate_resuscitation", False)
+        )
+        observation, reward, done, info = env.step(action)
+        return JSONResponse(content={
+            "observation": observation.dict(),
+            "reward": reward.total,
+            "done": done,
+            "info": info
+        })
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.get("/state")
 async def state_endpoint():
-    """OpenEnv state endpoint"""
     return JSONResponse(content=env.state())
 
-# Gradio Dashboard
+# Gradio Functions
 def reset_env():
     global observation
     observation = env.reset()
@@ -128,10 +113,8 @@ with gr.Blocks(title="Medical Triage Environment") as demo:
     gr.Markdown("### AI Agent Training for Emergency Department Triage")
     
     with gr.Row():
-        with gr.Column(scale=1):
-            patient_table = gr.Dataframe(label="📋 Waiting Patients")
-        with gr.Column(scale=1):
-            metrics_table = gr.Dataframe(label="📊 Current Metrics")
+        patient_table = gr.Dataframe(label="📋 Waiting Patients")
+        metrics_table = gr.Dataframe(label="📊 Current Metrics")
     
     with gr.Row():
         reset_btn = gr.Button("🔄 Reset Environment", variant="secondary")
@@ -141,7 +124,7 @@ with gr.Blocks(title="Medical Triage Environment") as demo:
     reset_btn.click(fn=reset_env, outputs=[patient_table, metrics_table])
     step_btn.click(fn=take_action, outputs=[patient_table, metrics_table])
 
-# Mount Gradio app to FastAPI
+# Mount Gradio
 app = gr.mount_gradio_app(app, demo, path="/")
 
 if __name__ == "__main__":
