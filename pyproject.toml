@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "medical-triage-env"
@@ -27,11 +27,5 @@ dependencies = [
 [project.scripts]
 openenv-server = "server.app:main"
 
-[project.urls]
-"Homepage" = "https://github.com/yasir2690/medical_triage_env"
-
 [tool.openenv]
 environment_class = "src.environment.MedicalTriageEnv"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src", "server"]
