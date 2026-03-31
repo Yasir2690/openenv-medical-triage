@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0", "wheel", "hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "medical-triage-env"
@@ -19,6 +19,8 @@ dependencies = [
     "gradio>=4.0.0",
     "pandas>=2.0.0",
     "openai>=1.0.0",
+    "uvicorn>=0.30.0",
+    "fastapi>=0.115.0",
     "openenv-core>=0.2.0"
 ]
 
@@ -27,7 +29,9 @@ openenv-server = "server.app:main"
 
 [project.urls]
 "Homepage" = "https://github.com/yasir2690/medical_triage_env"
-"Hugging Face Space" = "https://huggingface.co/spaces/yasir2690/medical_triage_env"
 
 [tool.openenv]
 environment_class = "src.environment.MedicalTriageEnv"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "server"]

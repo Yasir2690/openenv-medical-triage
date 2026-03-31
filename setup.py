@@ -1,31 +1,12 @@
-"""
-Setup file for medical-triage-env
-"""
-
 from setuptools import setup, find_packages
 
 setup(
     name="medical-triage-env",
     version="1.0.0",
-    description="Emergency Department Triage Environment for OpenEnv Hackathon",
-    author="Your Team Name",
-    author_email="your-email@example.com",
     packages=find_packages(),
-    install_requires=[
-        "pydantic>=2.0.0",
-        "numpy>=1.24.0",
-        "python-dateutil>=2.8.2",
-        "gradio>=4.0.0",
-        "pandas>=2.0.0",
-        "openai>=1.0.0",
-        "uvicorn>=0.30.0",
-        "fastapi>=0.115.0",
-        "openenv-core>=0.2.0",
-    ],
     entry_points={
         "console_scripts": [
             "openenv-server=server.app:main",
         ],
     },
-    python_requires=">=3.10",
 )
