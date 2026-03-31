@@ -27,5 +27,11 @@ dependencies = [
 [project.scripts]
 openenv-server = "server.app:main"
 
+[project.urls]
+Homepage = "https://github.com/Yasir2690/openenv-medical-triage"
+
 [tool.openenv]
 environment_class = "src.environment.MedicalTriageEnv"
+
+[tool.setuptools]
+packages = ["src", "server"]
