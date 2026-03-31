@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 7860
 
-CMD ["python", "/app/dashboard/app.py"]
+CMD ["uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", "7860"]
