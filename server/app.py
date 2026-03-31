@@ -14,3 +14,7 @@ def main():
     env = MedicalTriageEnv()
     print("Medical Triage Environment ready")
     return env
+
+# This is required for the entry point to be callable
+if __name__ == "__main__":
+    main()
