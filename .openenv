@@ -1,4 +1,0 @@
-name = "medical-triage-env"
-version = "1.0.0"
-entry_point = "server.app:main"
-environment_class = "src.environment.MedicalTriageEnv"

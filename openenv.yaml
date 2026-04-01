@@ -1,0 +1,53 @@
+name: medical-triage-env
+version: 1.0.0
+description: Emergency Department Triage Environment - AI agent coordinates patient triage, resource allocation, and clinical decision-making
+
+authors:
+  - name: Open Source Minds
+    email: yasirasfaque91@gmail.com
+
+tags:
+  - healthcare
+  - triage
+  - emergency-medicine
+  - resource-allocation
+  - decision-making
+  - openenv
+
+environment:
+  class: src.environment.MedicalTriageEnv
+  entry_point: src.environment.MedicalTriageEnv
+
+observation:
+  type: src.models.TriageObservation
+  description: Current state of emergency department including patients, resources, and metrics
+
+action:
+  type: src.models.TriageAction
+  description: Triage decisions including ESI assignment, resource allocation, and clinical actions
+
+reward:
+  type: src.models.TriageReward
+  description: Reward signal with partial progress components for patient outcomes, wait times, resource use, and penalties
+
+tasks:
+  - name: easy_basic_triage
+    description: Correctly assign ESI levels to patients with clear presentations
+    grader: src.graders.grade_easy_task
+    expected_score: 0.7
+
+  - name: medium_resource_allocation
+    description: Manage 25+ patients with limited resources during surge
+    grader: src.graders.grade_medium_task
+    expected_score: 0.6
+
+  - name: hard_mass_casualty
+    description: Handle 40+ patient mass casualty incident with surge capacity activation
+    grader: src.graders.grade_hard_task
+    expected_score: 0.5
+
+metadata:
+  max_episode_steps: 100
+  simulation_speed: 1.0
+  max_concurrent_patients: 50
+  random_seed: 42

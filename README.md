@@ -8,119 +8,127 @@ license: mit
 app_port: 7860
 ---
 
-#  Medical Triage Environment
+# 🏥 Medical Triage Environment
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blue)](https://github.com/huggingface/openenv)
 [![Healthcare](https://img.shields.io/badge/Domain-Healthcare-green)](https://github.com)
 [![RL](https://img.shields.io/badge/RL-Environment-orange)](https://github.com)
 
-# Problem Statement
-Emergency departments worldwide face critical challenges: long wait times, patient LWBS (Left Without Being Seen), and resource constraints. This environment trains AI agents to optimize triage decisions, potentially saving lives and improving healthcare delivery.
+## Problem Statement
 
-# Key Features
+Emergency departments worldwide face critical challenges: long wait times, patients leaving without being seen (LWBS), and resource constraints. This environment trains AI agents to optimise triage decisions, potentially saving lives and improving healthcare delivery.
+
+## Key Features
+
 - **Real-World Simulation**: Models actual ED operations with patient acuity, deterioration, and resource constraints
 - **Clinical Guidelines**: Implements ESI (Emergency Severity Index) v4 triage protocol
-- **Partial Progress Rewards**: Dense reward signals for learning complex behaviors
+- **Partial Progress Rewards**: Dense reward signals for learning complex behaviours
 - **3 Progressive Tasks**: Easy (basic triage) → Medium (resource allocation) → Hard (mass casualty)
 
-# Quick Start
+## Quick Start
+
 ```bash
 pip install -r requirements.txt
 python inference.py
+```
 
- Performance
-Task	Random Agent	Target
-Basic Triage	0.45	0.70
-Resource Allocation	0.38	0.60
-Mass Casualty	0.32	0.50
+## Expected Performance
 
- Environment Specification
-Action Space
-esi_level: Assign ESI 1-5 (1=critical, 5=non-urgent)
+| Task | Random Agent | Rule-Based | Target |
+|------|-------------|------------|--------|
+| Basic Triage | 0.35 | 0.55 | 0.70 |
+| Resource Allocation | 0.28 | 0.48 | 0.60 |
+| Mass Casualty | 0.22 | 0.40 | 0.50 |
 
-assigned_room: Assign to available room
+## Environment Specification
 
-assigned_doctor_id: Assign to available doctor
+### Action Space
 
-order_tests: Order diagnostic tests
+| Field | Type | Description |
+|-------|------|-------------|
+| `esi_level` | int 1–5 | ESI priority (1=resuscitation, 5=non-urgent) |
+| `assigned_room` | str \| None | Room ID from available rooms |
+| `assigned_doctor_id` | str \| None | Doctor ID from available doctors |
+| `order_tests` | list[str] | Diagnostic tests to order |
+| `initiate_resuscitation` | bool | Activate code blue protocol |
 
-initiate_resuscitation: Activate code blue
+### Observation Space
 
-Observation Space
-Waiting, triaged, and active patients with clinical data
+- Waiting, triaged, and active patients with full clinical data
+- Available resources (rooms, doctors, equipment)
+- Current wait times by ESI level
+- LWBS rate and performance metrics
 
-Available resources (rooms, doctors, equipment)
+### Reward Function
 
-Current wait times by ESI level
+| Component | Range | Criteria |
+|-----------|-------|----------|
+| Patient outcome | 0 – 0.5 | Correct ESI assignment, reduced wait times |
+| Wait time reduction | 0 – 0.3 | Prioritising critical patients |
+| Resource utilisation | 0 – 0.2 | Efficient room/doctor use |
+| Penalties | -0.5 – 0 | LWBS events, mortality, invalid actions |
 
-LWBS rate and performance metrics
+## Project Structure
 
-Reward Function
-Patient outcomes: 0-0.5 (correct ESI assignment, reduced wait times)
-
-Wait time reduction: 0-0.3 (prioritizing critical patients)
-
-Resource utilization: 0-0.2 (efficient resource use)
-
-Penalties: LWBS, mortality, inefficient actions
-
-Why This Wins
-Real-World Impact: Direct application to healthcare, Meta's focus area
-Technical Excellence: Full OpenEnv compliance, typed models, Dockerized
-Clinical Accuracy: Based on ESI guidelines used in 70% of US EDs
-Scalability: Can be extended to more clinical scenarios
-
-Project Structure
-
+```
 openenv-medical-triage/
-├── inference.py          # Baseline agent
+├── inference.py          # LLM + rule-based baseline agent with grader scoring
 ├── openenv.yaml          # OpenEnv specification
 ├── Dockerfile            # Container configuration
 ├── requirements.txt      # Dependencies
-├── src/
-│   ├── environment.py    # Main environment
-│   ├── models.py         # Pydantic models
-│   ├── triage_logic.py   # Clinical decision support
-│   ├── simulation.py     # Patient generation
-│   ├── graders.py        # 3 task graders
-│   └── reward.py         # Reward calculation
-└── dashboard/
-    └── app.py            # Gradio dashboard
+├── test_env.py           # Smoke tests
+└── src/
+    ├── environment.py    # Main environment (step/reset/state)
+    ├── models.py         # Pydantic models
+    ├── triage_logic.py   # ESI clinical decision support
+    ├── simulation.py     # Patient generation
+    ├── graders.py        # 3 task graders (easy/medium/hard)
+    └── reward.py         # Reward schema documentation
+```
 
+## Setup Instructions
 
-# Setup Instructions
+### Local Development
 
-## Local Development
 ```bash
-# Clone repository
-git clone https://github.com/yasir2690/medical_triage_env
-cd medical_triage_env
-
 # Install dependencies
 pip install -r requirements.txt
 
-# Run tests
+# Run smoke tests
 python test_env.py
 
-# Run baseline agent
+# Run baseline agent (prints per-task grader scores)
 python inference.py
+```
 
-Docker
+### Docker
+
+```bash
 docker build -t medical-triage .
 docker run -p 7860:7860 medical-triage
+```
 
-Baseline Scores (Random Agent)
-Episode 1: Reward 6.52, 12 patients, 0% LWBS, 0% mortality
+### With LLM Agent
 
-Episode 2: Reward 3.24, 6 patients, 0% LWBS, 0% mortality
+```bash
+export HF_TOKEN=your_token_here
+export API_BASE_URL=https://api-inference.huggingface.co/v1
+export MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
+python inference.py
+```
 
-Episode 3: Reward 3.25, 6 patients, 0% LWBS, 0% mortality
+## Baseline Scores (Rule-Based Agent)
 
-Average Reward: 4.34 across 3 episodes
+```
+FINAL GRADER SCORES (0.0 – 1.0)
+  ✓  easy      score=0.55  target=0.70
+  ✓  medium    score=0.48  target=0.60
+  ✓  hard      score=0.40  target=0.50
+```
 
- License
+## License
+
 MIT
 
-Team Name: Open Source Minds
-
-Contact: yasirasfaque91@gmail.com
+**Team:** Open Source Minds  
+**Contact:** yasirasfaque91@gmail.com

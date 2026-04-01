@@ -123,7 +123,7 @@ class MedicalTriageEnv:
         return {
             "step_count": self.step_count,
             "current_time": self.current_time.isoformat(),
-            "patients": {pid: patient.dict() for pid, patient in self.patients.items()},
+            "patients": {pid: patient.model_dump() for pid, patient in self.patients.items()},
             "patient_queue": list(self.patient_queue),
             "metrics": self.metrics,
             "episode_start_time": self.episode_start_time.isoformat() if self.episode_start_time else None,
