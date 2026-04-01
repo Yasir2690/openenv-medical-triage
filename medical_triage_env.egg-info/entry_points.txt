@@ -1,2 +1,0 @@
-[console_scripts]
-openenv-server = server.app:main
