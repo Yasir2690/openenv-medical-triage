@@ -64,3 +64,4 @@ class ClinicalDeteriorationPredictor:
             score += 0.2
         
         return min(score, 1.0)
+#hi#

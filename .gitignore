@@ -1,0 +1,38 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.openenv
+
+# Virtual environments
+.venv/
+venv/
+
+# Python cache/compiled
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging/build artifacts
+*.egg-info/
+dist/
+build/
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs/temp
+*.log
+*.tmp
