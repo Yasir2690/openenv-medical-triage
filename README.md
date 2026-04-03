@@ -34,23 +34,23 @@ python inference.py
 
 ## Expected Performance
 
-| Task | Random Agent | Rule-Based | Target |
-|------|-------------|------------|--------|
-| Basic Triage | 0.35 | 0.55 | 0.70 |
-| Resource Allocation | 0.28 | 0.48 | 0.60 |
-| Mass Casualty | 0.22 | 0.40 | 0.50 |
+| Task                | Random Agent | Rule-Based | Target |
+| ------------------- | ------------ | ---------- | ------ |
+| Basic Triage        | 0.35         | 0.55       | 0.70   |
+| Resource Allocation | 0.28         | 0.48       | 0.60   |
+| Mass Casualty       | 0.22         | 0.40       | 0.50   |
 
 ## Environment Specification
 
 ### Action Space
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `esi_level` | int 1–5 | ESI priority (1=resuscitation, 5=non-urgent) |
-| `assigned_room` | str \| None | Room ID from available rooms |
-| `assigned_doctor_id` | str \| None | Doctor ID from available doctors |
-| `order_tests` | list[str] | Diagnostic tests to order |
-| `initiate_resuscitation` | bool | Activate code blue protocol |
+| Field                    | Type        | Description                                  |
+| ------------------------ | ----------- | -------------------------------------------- |
+| `esi_level`              | int 1–5     | ESI priority (1=resuscitation, 5=non-urgent) |
+| `assigned_room`          | str \| None | Room ID from available rooms                 |
+| `assigned_doctor_id`     | str \| None | Doctor ID from available doctors             |
+| `order_tests`            | list[str]   | Diagnostic tests to order                    |
+| `initiate_resuscitation` | bool        | Activate code blue protocol                  |
 
 ### Observation Space
 
@@ -61,12 +61,12 @@ python inference.py
 
 ### Reward Function
 
-| Component | Range | Criteria |
-|-----------|-------|----------|
-| Patient outcome | 0 – 0.5 | Correct ESI assignment, reduced wait times |
-| Wait time reduction | 0 – 0.3 | Prioritising critical patients |
-| Resource utilisation | 0 – 0.2 | Efficient room/doctor use |
-| Penalties | -0.5 – 0 | LWBS events, mortality, invalid actions |
+| Component            | Range    | Criteria                                   |
+| -------------------- | -------- | ------------------------------------------ |
+| Patient outcome      | 0 – 0.5  | Correct ESI assignment, reduced wait times |
+| Wait time reduction  | 0 – 0.3  | Prioritising critical patients             |
+| Resource utilisation | 0 – 0.2  | Efficient room/doctor use                  |
+| Penalties            | -0.5 – 0 | LWBS events, mortality, invalid actions    |
 
 ## Project Structure
 
@@ -114,6 +114,46 @@ docker run -p 7860:7860 medical-triage
 export HF_TOKEN=your_token_here
 export API_BASE_URL=https://api-inference.huggingface.co/v1
 export MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
+python inference.py
+```
+
+### Required Environment Configuration (Submission)
+
+The submission runner expects these variables to be defined:
+
+- `API_BASE_URL`: The API endpoint for the LLM.
+- `MODEL_NAME`: The model identifier used for inference.
+- `HF_TOKEN`: Hugging Face token / API key.
+
+PowerShell example:
+
+```powershell
+$env:API_BASE_URL="https://api-inference.huggingface.co/v1"
+$env:MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.3"
+$env:HF_TOKEN="your_token_here"
+python inference.py
+```
+
+### Runtime + Resource Limits (2 vCPU / 8 GB)
+
+The inference script includes runtime guards so execution can finish within 20 minutes on limited machines.
+
+Optional tuning environment variables:
+
+- `MAX_RUNTIME_SECONDS` (default: `1080`) - Global wall-clock cap for all tasks.
+- `MAX_TASK_RUNTIME_SECONDS` (default: `360`) - Per-task wall-clock cap.
+- `MAX_LLM_CALLS_PER_TASK` (default: `45`) - Upper bound on API calls per task.
+- `LLM_EVERY_N_STEPS` (default: `3`) - Call LLM every N steps; heuristic actions in between.
+- `LLM_TIMEOUT_SECONDS` (default: `12`) - Network timeout per LLM call.
+
+Suggested PowerShell settings for strict <20 min runtime:
+
+```powershell
+$env:MAX_RUNTIME_SECONDS="1080"
+$env:MAX_TASK_RUNTIME_SECONDS="360"
+$env:MAX_LLM_CALLS_PER_TASK="45"
+$env:LLM_EVERY_N_STEPS="3"
+$env:LLM_TIMEOUT_SECONDS="12"
 python inference.py
 ```
 

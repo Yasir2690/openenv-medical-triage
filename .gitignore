@@ -36,3 +36,9 @@ Thumbs.db
 # Logs/temp
 *.log
 *.tmp
+
+
+
+#test 
+validate-submission/
+validate-submission.sh
