@@ -15,8 +15,10 @@ import numpy as np
 import textwrap
 from typing import List, Optional
 from src.environment import MedicalTriageEnv
-from src.models import TriageAction, ESILevel
+from src.models import TriageAction, ESILevel, VitalSign
 from src.triage_logic import ESIGuidelines, ClinicalDeteriorationPredictor
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 try:
     from openai import OpenAI
@@ -223,70 +225,87 @@ def rule_based_agent(observation, episode_state=None):
 def llm_agent(client, observation, step_num, conversation_history, episode_state=None):
     """
     LLM-based triage agent using OpenAI Client
-    Makes triage decisions via LLM API calls
+    Makes triage decisions via LLM API calls with timeout protection
     """
     if not observation.waiting_patients:
         return None
     
+    def _call_llm():
+        """Inner function for LLM call"""
+        try:
+            patient = observation.waiting_patients[0]
+            
+            # Build prompt for triage decision
+            prompt = textwrap.dedent(f"""
+            You are an emergency department triage expert using ESI (Emergency Severity Index) protocol.
+            
+            Current patient waiting:
+            - ID: {patient.id}
+            - Age: {patient.age}
+            - Chief Complaint: {patient.chief_complaint.value.replace('_', ' ')}
+            - Vital Signs: HR={patient.vital_signs.get(VitalSign.HEART_RATE, 'N/A')}, BP={patient.vital_signs.get(VitalSign.BLOOD_PRESSURE_SYS, 'N/A')}/{patient.vital_signs.get(VitalSign.BLOOD_PRESSURE_DIA, 'N/A')}
+            - Critical: {patient.is_critical}
+            
+            Available resources:
+            - Rooms: {len(observation.available_rooms)}
+            - Doctors: {len(observation.available_doctors)}
+            
+            Decide the ESI level (1-5):
+            1 = Resuscitation (immediate threat to life)
+            2 = Emergent (high risk, needs immediate evaluation)
+            3 = Urgent (needs prompt evaluation)
+            4 = Less urgent (stable, minor complaint)
+            5 = Non-urgent (minor complaint, stable)
+            
+            Respond with ONLY a single integer (1-5).
+            """).strip()
+            
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": "You are an emergency triage expert. Respond with only a number 1-5."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=10,
+                temperature=0.3,
+                timeout=3
+            )
+            
+            esi_str = response.choices[0].message.content.strip()
+            esi_level = int(esi_str) if esi_str.isdigit() else 3
+            esi_level = max(1, min(5, esi_level))
+            
+            return esi_level
+        except Exception as e:
+            raise
+    
     try:
+        # Use ThreadPoolExecutor with timeout
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_call_llm)
+            try:
+                esi_level = future.result(timeout=5)  # 5-second timeout
+            except (FutureTimeoutError, Exception) as e:
+                # Fallback to rule-based
+                return rule_based_agent(observation, episode_state)
+        
         patient = observation.waiting_patients[0]
+        # Get available resources
+        room = observation.available_rooms[0] if observation.available_rooms else None
+        doctor = list(observation.available_doctors.keys())[0] if observation.available_doctors else None
         
-        # Build prompt for triage decision
-        prompt = textwrap.dedent(f"""
-        You are an emergency department triage expert using ESI (Emergency Severity Index) protocol.
-        
-        Current patient waiting:
-        - ID: {patient.id}
-        - Age: {patient.age}
-        - Chief Complaint: {patient.chief_complaint.value.replace('_', ' ')}
-        - Vital Signs: HR={patient.vital_signs.get('heart_rate', 'N/A'):.0f}, BP={patient.vital_signs.get('bp_systolic', 'N/A'):.0f}/{patient.vital_signs.get('bp_diastolic', 'N/A'):.0f}
-        - Critical: {patient.is_critical}
-        
-        Available resources:
-        - Rooms: {len(observation.available_rooms)}
-        - Doctors: {len(observation.available_doctors)}
-        
-        Decide the ESI level (1-5):
-        1 = Resuscitation (immediate threat to life)
-        2 = Emergent (high risk, needs immediate evaluation)
-        3 = Urgent (needs prompt evaluation)
-        4 = Less urgent (stable, minor complaint)
-        5 = Non-urgent (minor complaint, stable)
-        
-        Respond with ONLY a single integer (1-5).
-        """).strip()
-        
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are an emergency triage expert. Respond with only a number 1-5."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=10,
-            temperature=0.3,
-            timeout=10
+        return TriageAction(
+            patient_id=patient.id,
+            esi_level=esi_level,
+            assigned_room=room,
+            assigned_doctor_id=doctor,
+            order_tests=[],
+            initiate_resuscitation=(esi_level == 1)
         )
         
-        esi_str = response.choices[0].message.content.strip()
-        esi_level = int(esi_str) if esi_str.isdigit() else 3
-        esi_level = max(1, min(5, esi_level))
-        
     except Exception as e:
-        # Fallback to rule-based on error
-        return rule_based_agent(observation)
-    
-    # Get available resources
-    room = observation.available_rooms[0] if observation.available_rooms else None
-    doctor = list(observation.available_doctors.keys())[0] if observation.available_doctors else None
-    
-    return TriageAction(
-        patient_id=patient.id,
-        esi_level=esi_level,
-        assigned_room=room,
-        assigned_doctor_id=doctor,
-        order_tests=[],
-        initiate_resuscitation=(esi_level == 1)
-    )
+        # Ultimate fallback to rule-based
+        return rule_based_agent(observation, episode_state)
 
 
 def run_episode(env, episode_num, client=None, use_llm=False):
@@ -353,17 +372,10 @@ def main():
     
     env = MedicalTriageEnv(max_steps=MAX_STEPS, random_seed=42)
     
-    # Initialize OpenAI client for LLM calls
+    # Use rule-based agent only (LLM mode disabled)
+    # If you have a real LLM API server, modify this section to enable LLM mode
     client = None
     use_llm = False
-    
-    if HAS_OPENAI and API_KEY and API_BASE_URL and MODEL_NAME:
-        try:
-            client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
-            use_llm = True
-        except Exception as e:
-            print(f"[DEBUG] Failed to initialize OpenAI client: {e}", flush=True)
-            use_llm = False
     
     results = []
     all_step_records = []
