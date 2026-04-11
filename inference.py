@@ -1,11 +1,35 @@
 """
 Inference Script for Medical Triage Environment
-Rule-based and LLM-based agent with structured output format
+===================================
+MANDATORY
+- Before submitting, ensure the following variables are defined in your environment configuration:
+    API_BASE_URL   The API endpoint for the LLM (required).
+    MODEL_NAME     The model identifier to use for inference (required).
+    HF_TOKEN       Your Hugging Face / API key (required).
 
-MANDATORY REQUIREMENTS:
-- Environment variables: API_BASE_URL, MODEL_NAME, HF_TOKEN (required)
-- Output format: [START], [STEP], [END] lines to stdout with flush=True
-- Score normalized to [0, 1]
+- Defaults are set for API_BASE_URL and MODEL_NAME:
+    API_BASE_URL = os.getenv("API_BASE_URL", "<default-endpoint>")
+    MODEL_NAME = os.getenv("MODEL_NAME", "<default-model>")
+    
+- The inference script must be named `inference.py` and placed in the root directory of the project
+- Participants must use OpenAI Client for all LLM calls using above variables
+
+STDOUT FORMAT
+- The script must emit exactly three line types to stdout:
+
+    [START] task=<task_name> env=<benchmark> model=<model_name>
+    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+
+  Rules:
+    - One [START] line at episode begin.
+    - One [STEP] line per step, immediately after env.step() returns.
+    - One [END] line after all episodes, always emitted (even on exception).
+    - reward and rewards are formatted to 2 decimal places.
+    - done and success are lowercase booleans: true or false.
+    - error is the raw error string, or null if none.
+    - All fields on a single line with no newlines within a line.
+    - Score should be normalized to [0, 1]
 """
 
 import os
@@ -13,12 +37,11 @@ import random
 import sys
 import numpy as np
 import textwrap
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+
 from src.environment import MedicalTriageEnv
 from src.models import TriageAction, ESILevel, VitalSign
 from src.triage_logic import ESIGuidelines, ClinicalDeteriorationPredictor
-import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 try:
     from openai import OpenAI
@@ -26,31 +49,44 @@ try:
 except ImportError:
     HAS_OPENAI = False
 
-# REQUIRED environment variables for LLM inference
-# These must be explicitly set in your environment configuration
-API_BASE_URL = os.getenv("API_BASE_URL")
+# REQUIRED environment variables for inference
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME")
+MODEL_NAME = os.getenv("MODEL_NAME", "mistral-7b")
 
-# Validate required environment variables
-def validate_env_vars():
-    """Validate that required environment variables are set"""
-    missing = []
-    if not API_BASE_URL:
-        missing.append("API_BASE_URL")
-    if not API_KEY:
-        missing.append("HF_TOKEN or OPENAI_API_KEY")
-    if not MODEL_NAME:
-        missing.append("MODEL_NAME")
-    
-    if missing:
-        print(f"[ERROR] Missing required environment variables: {', '.join(missing)}", flush=True)
-        print("[ERROR] Please set: API_BASE_URL, MODEL_NAME, HF_TOKEN", flush=True)
-        return False
-    return True
-
+# Task configuration
+TASK_NAME = "medical_triage_inference"
 BENCHMARK = "medical_triage"
 MAX_STEPS = 50
+NUM_EPISODES = 3
+
+
+# ===========================
+# Logging Functions
+# ===========================
+
+def log_start(task: str, env: str, model: str) -> None:
+    """Log episode start."""
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    """Log a single step."""
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    """Log episode end."""
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
 
 
 def get_appropriate_tests(patient, esi_level):
@@ -308,12 +344,22 @@ def llm_agent(client, observation, step_num, conversation_history, episode_state
         return rule_based_agent(observation, episode_state)
 
 
-def run_episode(env, episode_num, client=None, use_llm=False):
-    """Run a single episode with LLM or rule-based agent"""
+def run_episode(env: MedicalTriageEnv, episode_num: int, client=None, use_llm: bool = False) -> Dict[str, Any]:
+    """
+    Run a single episode with LLM or rule-based agent.
+    
+    Args:
+        env: Medical triage environment
+        episode_num: Episode number (for tracking)
+        client: OpenAI client (if using LLM)
+        use_llm: Whether to use LLM agent
+        
+    Returns:
+        Dictionary with episode results
+    """
     observation = env.reset()
     total_reward = 0.0
     step_records = []
-    step_num = 0
     conversation_history = []
     episode_state = {'doctor_assignments': {}, 'room_assignments': {}}
     
@@ -359,76 +405,52 @@ def run_episode(env, episode_num, client=None, use_llm=False):
 
 
 def main():
-    # Validate required environment variables
-    env_valid = validate_env_vars()
-    
-    if not env_valid:
-        # Print minimal output to avoid breaking downstream parsing
-        print(f"[START] task=medical_triage_inference env={BENCHMARK} model=undefined", flush=True)
-        print(f"[END] success=false steps=0 score=0.0 rewards=", flush=True)
-        return 1
-    
-    print(f"[START] task=medical_triage_inference env={BENCHMARK} model={MODEL_NAME}", flush=True)
+    """Main inference loop."""
+    # Log episode start
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
     
     env = MedicalTriageEnv(max_steps=MAX_STEPS, random_seed=42)
     
-    # Use rule-based agent only (LLM mode disabled)
-    # If you have a real LLM API server, modify this section to enable LLM mode
+    # Use rule-based agent only
+    # LLM mode is disabled by default to prevent connection timeouts
+    # To use LLM, ensure the API_BASE_URL points to a real, reachable API server
     client = None
     use_llm = False
     
-    results = []
     all_step_records = []
     all_rewards = []
-    success = False
     total_steps = 0
     final_score = 0.0
-    rewards_str = ""
+    success = False
     
     try:
-        for episode in range(1, 4):
+        # Run episodes
+        for episode in range(1, NUM_EPISODES + 1):
             result = run_episode(env, episode, client=client, use_llm=use_llm)
-            results.append(result)
             
-            # Collect step records and rewards
+            # Collect and log step records
             for record in result["step_records"]:
                 all_step_records.append(record)
                 all_rewards.append(record["reward"])
                 
-                # Print [STEP] line in correct format
-                error_val = record["error"] if record["error"] else "null"
-                done_val = str(record["done"]).lower()
-                print(
-                    f"[STEP] step={record['step']} action={record['action']} "
-                    f"reward={record['reward']:.2f} done={done_val} error={error_val}",
-                    flush=True
+                # Log each step
+                log_step(
+                    step=record["step"],
+                    action=record["action"],
+                    reward=record["reward"],
+                    done=record["done"],
+                    error=record["error"]
                 )
         
         # Calculate final results
-        total_reward = sum(r["total_reward"] for r in results)
-        total_steps = sum(len(r["step_records"]) for r in results)
-        total_arrivals = sum(r["arrivals"] for r in results)
-        total_lwbs = sum(r["lwbs"] for r in results)
-        total_mortality = sum(r["mortality"] for r in results)
-        
-        # Calculate normalized score (0-1)
-        # Base score on average reward per step, normalized
-        avg_reward_per_step = total_reward / total_steps if total_steps > 0 else 0.0
+        total_steps = len(all_step_records)
+        avg_reward_per_step = sum(all_rewards) / total_steps if total_steps > 0 else 0.0
         final_score = min(1.0, max(0.0, avg_reward_per_step))
-        
-        # Determine success (score >= some threshold)
         success = final_score >= 0.4
-        
-        # Format rewards list
-        rewards_str = ",".join(f"{r:.2f}" for r in all_rewards)
         
     finally:
         # Always emit [END] line
-        success_val = str(success).lower()
-        print(
-            f"[END] success={success_val} steps={total_steps} score={final_score:.3f} rewards={rewards_str}",
-            flush=True
-        )
+        log_end(success=success, steps=total_steps, score=final_score, rewards=all_rewards)
     
     return 0 if success else 1
 
