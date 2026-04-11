@@ -16,6 +16,7 @@ import textwrap
 from typing import List, Optional
 from src.environment import MedicalTriageEnv
 from src.models import TriageAction, ESILevel
+from src.triage_logic import ESIGuidelines, ClinicalDeteriorationPredictor
 
 try:
     from openai import OpenAI
@@ -52,37 +53,68 @@ MAX_STEPS = 50
 
 def rule_based_agent(observation):
     """
-    Simple rule-based triage agent
-    Follows ESI guidelines: critical first, then by acuity
+    Enhanced rule-based triage agent using ESI guidelines
+    Prioritizes by clinical severity, wait time, and deterioration risk
     """
     if not observation.waiting_patients:
         return None
     
-    # Find critical patients (ESI 1-2)
-    critical_patients = []
+    # Score each patient by priority
+    patient_scores = []
     for p in observation.waiting_patients:
-        if p.is_critical:
-            critical_patients.append(p)
-        elif p.chief_complaint.value in ["chest_pain", "stroke_symptoms", "head_injury"]:
-            critical_patients.append(p)
-    
-    if critical_patients:
-        # Take the most critical patient
-        patient = critical_patients[0]
+        # Calculate clinical ESI using guidelines
+        correct_esi = ESIGuidelines.calculate_esi(p)
+        esi_value = correct_esi.value if hasattr(correct_esi, 'value') else correct_esi
         
-        # Assign ESI based on severity
-        if patient.chief_complaint.value in ["unresponsive", "severe_bleeding"]:
-            esi_level = 1
-        else:
-            esi_level = 2
-    else:
-        # Take first waiting patient, assign ESI 3
-        patient = observation.waiting_patients[0]
-        esi_level = 3
+        # Deterioration risk (higher = more urgent)
+        deterioration_risk = ClinicalDeteriorationPredictor.risk_score(p)
+        
+        # Wait time consideration (longer wait = higher priority)
+        wait_minutes = p.wait_time_minutes if hasattr(p, 'wait_time_minutes') and p.wait_time_minutes else 0
+        
+        # Composite priority score (lower ESI value = higher priority)
+        # ESI 1 (1) > ESI 2 (2) > ESI 3 (3) > ESI 4 (4) > ESI 5 (5)
+        priority_score = (1.0 / esi_value) + (deterioration_risk * 0.5) + (wait_minutes / 100.0)
+        
+        patient_scores.append({
+            'patient': p,
+            'esi_level': esi_value,
+            'priority': priority_score,
+            'risk': deterioration_risk
+        })
     
-    # Get available resources
-    room = observation.available_rooms[0] if observation.available_rooms else None
-    doctor = list(observation.available_doctors.keys())[0] if observation.available_doctors else None
+    # Sort by priority (highest first)
+    patient_scores.sort(key=lambda x: -x['priority'])
+    selected = patient_scores[0]
+    patient = selected['patient']
+    esi_level = selected['esi_level']
+    risk = selected['risk']
+    
+    # Assign resources strategically
+    room = None
+    doctor = None
+    
+    # Critical patients (ESI 1-2) get priority resources
+    if esi_level <= 2:
+        # Try to assign best resources for critical patients
+        trauma_rooms = [r for r in observation.available_rooms if 'trauma' in r.lower()]
+        room = trauma_rooms[0] if trauma_rooms else (observation.available_rooms[0] if observation.available_rooms else None)
+        
+        # Assign best available doctor (critical care or emergency medicine specialists if available)
+        available_docs = list(observation.available_doctors.keys())
+        if available_docs:
+            doctor = available_docs[0]
+    else:
+        # Regular rooms for other patients
+        regular_rooms = [r for r in observation.available_rooms if 'bed' in r.lower()]
+        room = regular_rooms[0] if regular_rooms else (observation.available_rooms[0] if observation.available_rooms else None)
+        
+        # Any available doctor
+        if observation.available_doctors:
+            doctor = list(observation.available_doctors.keys())[0]
+    
+    # Determine if resuscitation is needed
+    resuscitate = esi_level == 1 or (esi_level == 2 and risk > 0.7)
     
     return TriageAction(
         patient_id=patient.id,
@@ -90,7 +122,7 @@ def rule_based_agent(observation):
         assigned_room=room,
         assigned_doctor_id=doctor,
         order_tests=[],
-        initiate_resuscitation=(esi_level == 1)
+        initiate_resuscitation=resuscitate
     )
 
 
@@ -170,6 +202,7 @@ def run_episode(env, episode_num, client=None, use_llm=False):
     step_records = []
     step_num = 0
     conversation_history = []
+    consecutive_low_reward = 0
     
     for step in range(MAX_STEPS):
         # Get action from LLM or rule-based agent
@@ -188,6 +221,12 @@ def run_episode(env, episode_num, client=None, use_llm=False):
         
         # Format action as string
         action_str = f"assign_esi({action.esi_level.value})"
+        
+        # Track if we're getting poor rewards (for debugging)
+        if reward.total < 0.35:
+            consecutive_low_reward += 1
+        else:
+            consecutive_low_reward = 0
         
         step_records.append({
             "step": step_num,
