@@ -12,8 +12,8 @@ from src.triage_logic import ESIGuidelines
 
 def grade_easy_task(episode_history):
     """
-    Easy Task: Basic ESI Triage Accuracy
-    Scores based on correct ESI assignments compared to ESIGuidelines.calculate_esi()
+    Easy Task: Basic ESI Triage Accuracy + Timeliness
+    Scores based on correct ESI assignments and avoiding patient deterioration.
     """
     if not episode_history:
         return 0.0
@@ -21,6 +21,7 @@ def grade_easy_task(episode_history):
     correct = 0
     total = 0
     timely = 0
+    total_deteriorations = 0
 
     for step in episode_history:
         action = step.get('action')
@@ -45,26 +46,39 @@ def grade_easy_task(episode_history):
             limit = thresholds.get(int(correct_esi), 60)
             if wait <= limit:
                 timely += 1
+        
+        # Track deteriorations (penalty for missing critical patients)
+        if getattr(patient, 'has_deteriorated', False):
+            total_deteriorations += 1
 
     if total == 0:
         return 0.0
 
-    accuracy = (correct / total) * 0.7
-    timeliness = (timely / total) * 0.3
+    accuracy = (correct / total) * 0.70
+    timeliness = (timely / total) * 0.20
+    
+    # Light deterioration penalty (basic task doesn't emphasize prevention as much)
+    if total > 0:
+        deterioration_penalty = (total_deteriorations / total) * 0.10
+        deterioration_score = max(0.0, 1.0 - deterioration_penalty) * 0.10
+    else:
+        deterioration_score = 0.0
 
-    return round(min(1.0, accuracy + timeliness), 4)
+    return round(min(1.0, accuracy + timeliness + deterioration_score), 4)
 
 
 def grade_medium_task(episode_history):
     """
-    Medium Task: Resource Allocation Under Pressure
-    Scores based on LWBS rate and resource utilisation across the episode.
+    Medium Task: Resource Allocation + Deterioration Prevention Under Pressure
+    Scores based on LWBS rate, resource utilisation, and preventing patient deterioration.
     """
     if not episode_history:
         return 0.0
 
     total_patients = 0
     total_lwbs = 0
+    total_critical = 0
+    total_deteriorations = 0
     rooms_assigned = 0
     doctors_assigned = 0
     total_actions = 0
@@ -73,6 +87,7 @@ def grade_medium_task(episode_history):
         info = step.get('info', {})
         metrics = info.get('metrics', {})
         action = step.get('action')
+        patient = step.get('patient')
 
         # Take the last reported cumulative metrics
         if metrics.get('total_arrivals', 0) > total_patients:
@@ -85,38 +100,55 @@ def grade_medium_task(episode_history):
                 rooms_assigned += 1
             if getattr(action, 'assigned_doctor_id', None):
                 doctors_assigned += 1
+        
+        # Track critical patient deteriorations
+        if patient is not None:
+            from src.triage_logic import ESIGuidelines
+            correct_esi = ESIGuidelines.calculate_esi(patient)
+            if int(correct_esi) in (1, 2):
+                total_critical += 1
+                if getattr(patient, 'has_deteriorated', False):
+                    total_deteriorations += 1
 
     if total_patients == 0:
         return 0.0
 
     # LWBS rate score (lower LWBS → higher score)
     lwbs_rate = total_lwbs / total_patients
-    lwbs_score = max(0.0, 1.0 - lwbs_rate * 10) * 0.5
+    lwbs_score = max(0.0, 1.0 - lwbs_rate * 10) * 0.40
 
     # Resource utilisation bonus
     if total_actions > 0:
         resource_utilisation = (rooms_assigned + doctors_assigned) / (total_actions * 2)
-        resource_score = min(0.35, resource_utilisation * 0.35)
+        resource_score = min(0.30, resource_utilisation * 0.30)
     else:
         resource_score = 0.0
 
-    # Throughput bonus: at least 25 patients seen
-    throughput_bonus = 0.15 if total_patients >= 25 else (total_patients / 25) * 0.15
+    # DETERIORATION PREVENTION SCORE: prevent critical patients from deteriorating
+    if total_critical > 0:
+        deterioration_rate = total_deteriorations / total_critical
+        deterioration_score = max(0.0, 1.0 - deterioration_rate) * 0.20
+    else:
+        deterioration_score = 0.0
 
-    return round(min(1.0, lwbs_score + resource_score + throughput_bonus), 4)
+    # Throughput bonus: at least 25 patients seen
+    throughput_bonus = 0.10 if total_patients >= 25 else (total_patients / 25) * 0.10
+
+    return round(min(1.0, lwbs_score + resource_score + deterioration_score + throughput_bonus), 4)
 
 
 def grade_hard_task(episode_history):
     """
-    Hard Task: Mass Casualty Incident
-    Scores based on mortality rate, critical patient triage speed, and surge capacity.
-    Challenging: requires excellent critical patient prioritization AND resource management.
+    Hard Task: Mass Casualty Incident + Deterioration Prevention
+    Scores based on mortality rate, critical patient triage speed, surge capacity,
+    and ability to prevent patient deterioration under time pressure.
     """
     if not episode_history:
         return 0.0
 
     total_patients = 0
     total_mortality = 0
+    total_deteriorations = 0
     correct_critical = 0
     total_critical = 0
     critical_wait_times = []
@@ -139,32 +171,42 @@ def grade_hard_task(episode_history):
                 if getattr(action, 'esi_level', None) == correct_esi:
                     correct_critical += 1
                 
-                # Track critical patient wait times for scoring
+                # Track deteriorations prevented (critical patients seen before deterioration)
                 if patient.triage_time and patient.arrival_time:
                     wait = (patient.triage_time - patient.arrival_time).total_seconds() / 60
                     critical_wait_times.append(wait)
+                
+                # Count deteriorations that occurred
+                if getattr(patient, 'has_deteriorated', False):
+                    total_deteriorations += 1
 
     if total_patients == 0:
         return 0.0
 
-    # STRICTER Mortality score: mortality is critical in MCI situations
+    # Mortality score: Critical in mass casualty
     mortality_rate = total_mortality / total_patients
-    mortality_score = max(0.0, 1.0 - mortality_rate * 25) * 0.45  # Increased weight
+    mortality_score = max(0.0, 1.0 - mortality_rate * 25) * 0.40
 
-    # Critical patient triage accuracy (must be high)
+    # Critical patient triage: Must be excellent  
     if total_critical > 0:
-        critical_accuracy = (correct_critical / total_critical) * 0.35  # Increased weight
-        # BONUS: critical patients seen quickly (under 15 min for ESI 1-2)
+        critical_accuracy = (correct_critical / total_critical) * 0.30
+        
+        # Speed bonus: rapid critical response
         if critical_wait_times:
             acceptable_waits = sum(1 for w in critical_wait_times if w < 15)
-            speed_bonus = (acceptable_waits / len(critical_wait_times)) * 0.1
+            speed_bonus = (acceptable_waits / len(critical_wait_times)) * 0.10
         else:
             speed_bonus = 0.0
+        
+        # DETERIORATION PREVENTION BONUS: most important in MCI
+        deterioration_rate = total_deteriorations / total_critical
+        prevention_score = max(0.0, 1.0 - deterioration_rate) * 0.15
     else:
         critical_accuracy = 0.15
         speed_bonus = 0.0
+        prevention_score = 0.0
 
-    # Stricter volume requirement for full bonus (handle true surge)
-    volume_bonus = 0.1 if total_patients >= 50 else (total_patients / 50) * 0.1
+    # Volume handling
+    volume_bonus = 0.05 if total_patients >= 50 else (total_patients / 50) * 0.05
 
-    return round(min(1.0, mortality_score + critical_accuracy + speed_bonus + volume_bonus), 4)
+    return round(min(1.0, mortality_score + critical_accuracy + speed_bonus + prevention_score + volume_bonus), 4)

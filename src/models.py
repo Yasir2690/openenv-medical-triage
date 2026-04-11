@@ -81,6 +81,8 @@ class Patient(BaseModel):
     left_without_being_seen: bool = False
     mortality: bool = False
     deterioration_events: List[Dict] = Field(default_factory=list)
+    deterioration_risk: float = 0.0  # 0.0-1.0: risk of deterioration if untreated
+    has_deteriorated: bool = False  # True if patient condition worsened due to wait
 
     def get_wait_time_minutes(self):
         if self.seen_time and self.arrival_time:

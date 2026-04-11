@@ -189,6 +189,9 @@ class MedicalTriageEnv:
                         # BONUS: Fast triage of critical patients
                         if wait_time < 15:
                             reward += 0.05
+                        # BONUS: Prevented deterioration by seeing patient quickly
+                        if not patient.has_deteriorated:
+                            reward += 0.05  # Reward for prevented deterioration
         
         # STEP-LEVEL BONUS: Maintaining low LWBS rate demonstrates good overall performance
         if self.metrics["total_arrivals"] > 0:
@@ -242,11 +245,28 @@ class MedicalTriageEnv:
                 self._add_patient(new_patient)
     
     def _update_patient_statuses(self) -> None:
-        """Update patient outcomes"""
+        """Update patient outcomes and detect deterioration"""
         to_remove = []
         
         for patient_id, patient in self.patients.items():
             wait_time = patient.wait_time_minutes
+            
+            # DETERIORATION CHECK: If patient has high acuity and has been waiting, they may deteriorate
+            if patient.assigned_esi in [1, 2] and not patient.seen_time:
+                # High-risk critical patients deteriorate faster
+                deterioration_threshold = 10 if patient.assigned_esi == 1 else 25
+                if wait_time and wait_time > deterioration_threshold and not patient.has_deteriorated:
+                    patient.has_deteriorated = True
+                    patient.deterioration_risk = 0.8
+                    patient.deterioration_events.append({
+                        'time': self.current_time,
+                        'event': f'Patient deteriorated after {wait_time:.0f} min wait',
+                        'severity': 'critical'
+                    })
+                    # Deterioration increases mortality risk
+                    if np.random.random() < 0.15:  # 15% chance of mortality if deteriorated
+                        patient.mortality = True
+                        self.metrics["total_mortality"] += 1
             
             # LWBS
             if not patient.seen_time and not patient.discharged_time and not patient.left_without_being_seen:
