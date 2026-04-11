@@ -145,22 +145,5 @@ def main():
     
     print("END: Medical Triage Environment Inference - All episodes complete")
 
-    scores: Dict[str, float] = {}
-    summaries = []
-    try:
-        for task_name in ("easy", "medium", "hard"):
-            score, summary = run_task(task_name, TASK_CONFIG[task_name], client, model_name, global_deadline)
-            scores[task_name] = float(score)
-            summaries.append(summary)
-
-            if time.monotonic() >= global_deadline:
-                break
-    except SystemExit:
-        raise
-    except Exception as exc:
-        print(f"[END] success=false steps=0 score=0.000 rewards=", flush=True)
-        print(f"Runtime exception: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
 if __name__ == "__main__":
     main()
