@@ -109,7 +109,8 @@ def grade_medium_task(episode_history):
 def grade_hard_task(episode_history):
     """
     Hard Task: Mass Casualty Incident
-    Scores based on mortality rate and triage speed under surge pressure.
+    Scores based on mortality rate, critical patient triage speed, and surge capacity.
+    Challenging: requires excellent critical patient prioritization AND resource management.
     """
     if not episode_history:
         return 0.0
@@ -118,6 +119,7 @@ def grade_hard_task(episode_history):
     total_mortality = 0
     correct_critical = 0
     total_critical = 0
+    critical_wait_times = []
 
     for step in episode_history:
         info = step.get('info', {})
@@ -136,21 +138,33 @@ def grade_hard_task(episode_history):
                 total_critical += 1
                 if getattr(action, 'esi_level', None) == correct_esi:
                     correct_critical += 1
+                
+                # Track critical patient wait times for scoring
+                if patient.triage_time and patient.arrival_time:
+                    wait = (patient.triage_time - patient.arrival_time).total_seconds() / 60
+                    critical_wait_times.append(wait)
 
     if total_patients == 0:
         return 0.0
 
-    # Mortality score (lower mortality → higher score)
+    # STRICTER Mortality score: mortality is critical in MCI situations
     mortality_rate = total_mortality / total_patients
-    mortality_score = max(0.0, 1.0 - mortality_rate * 20) * 0.5
+    mortality_score = max(0.0, 1.0 - mortality_rate * 25) * 0.45  # Increased weight
 
-    # Critical patient triage accuracy
+    # Critical patient triage accuracy (must be high)
     if total_critical > 0:
-        critical_accuracy = (correct_critical / total_critical) * 0.3
+        critical_accuracy = (correct_critical / total_critical) * 0.35  # Increased weight
+        # BONUS: critical patients seen quickly (under 15 min for ESI 1-2)
+        if critical_wait_times:
+            acceptable_waits = sum(1 for w in critical_wait_times if w < 15)
+            speed_bonus = (acceptable_waits / len(critical_wait_times)) * 0.1
+        else:
+            speed_bonus = 0.0
     else:
-        critical_accuracy = 0.15  # partial credit if no critical patients appeared
+        critical_accuracy = 0.15
+        speed_bonus = 0.0
 
-    # Speed/volume bonus: handling MCI volume
-    volume_bonus = 0.2 if total_patients >= 40 else (total_patients / 40) * 0.2
+    # Stricter volume requirement for full bonus (handle true surge)
+    volume_bonus = 0.1 if total_patients >= 50 else (total_patients / 50) * 0.1
 
-    return round(min(1.0, mortality_score + critical_accuracy + volume_bonus), 4)
+    return round(min(1.0, mortality_score + critical_accuracy + speed_bonus + volume_bonus), 4)

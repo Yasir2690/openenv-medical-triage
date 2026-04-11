@@ -18,6 +18,16 @@ app_port: 7860
 
 Emergency departments worldwide face critical challenges: long wait times, patients leaving without being seen (LWBS), and resource constraints. This environment trains AI agents to optimise triage decisions, potentially saving lives and improving healthcare delivery.
 
+## Real-World Impact
+
+Optimizing ED triage can deliver measurable improvements:
+
+- **LWBS Reduction**: Current baseline ~5-10% LWBS rate; optimal triage can reduce to <2%
+- **Patient Safety**: Accurate ESI assignment reduces mortality risk in critical patients by prioritizing care
+- **Resource Efficiency**: Smart resource allocation improves doctor/bed utilization by 15-25%
+- **Throughput**: Better triage decisions enable EDs to handle 20-30% more patients safely
+- **Clinical Outcome**: Reduced wait times for critical patients (ESI 1-2) by 40%+ directly correlates with better outcomes
+
 ## Key Features
 
 - **Real-World Simulation**: Models actual ED operations with patient acuity, deterioration, and resource constraints

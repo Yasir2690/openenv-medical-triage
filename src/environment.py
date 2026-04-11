@@ -146,7 +146,7 @@ class MedicalTriageEnv:
         return True
     
     def _apply_action(self, action: TriageAction) -> float:
-        """Apply action effects"""
+        """Apply action effects and return immediate reward"""
         if action.patient_id not in self.patients:
             return -0.5
         
@@ -186,6 +186,15 @@ class MedicalTriageEnv:
                     wait_time = (patient.seen_time - patient.arrival_time).total_seconds() / 60
                     if patient.assigned_esi in [1, 2]:
                         self.metrics["critical_wait_times"].append(wait_time)
+                        # BONUS: Fast triage of critical patients
+                        if wait_time < 15:
+                            reward += 0.05
+        
+        # STEP-LEVEL BONUS: Maintaining low LWBS rate demonstrates good overall performance
+        if self.metrics["total_arrivals"] > 0:
+            current_lwbs = self.metrics["total_lwbs"] / self.metrics["total_arrivals"]
+            if current_lwbs < 0.02:  # If LWBS < 2%, small bonus
+                reward += 0.02
         
         return max(-1.0, min(1.0, reward))
     
