@@ -51,7 +51,7 @@ except ImportError:
 
 # REQUIRED environment variables for inference
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "mistral-7b")
 
 # Task configuration
@@ -411,11 +411,23 @@ def main():
     
     env = MedicalTriageEnv(max_steps=MAX_STEPS, random_seed=42)
     
-    # Use rule-based agent only
-    # LLM mode is disabled by default to prevent connection timeouts
-    # To use LLM, ensure the API_BASE_URL points to a real, reachable API server
+    # Initialize OpenAI client with provided API credentials
     client = None
     use_llm = False
+    
+    if HAS_OPENAI and API_KEY and API_BASE_URL and MODEL_NAME:
+        try:
+            # Use the provided API_BASE_URL and API_KEY environment variables
+            # This ensures we use the LiteLLM proxy provided during validation
+            client = OpenAI(
+                api_key=API_KEY,
+                base_url=API_BASE_URL
+            )
+            use_llm = True
+            print(f"[DEBUG] LLM mode enabled with API_BASE_URL={API_BASE_URL}", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] Failed to initialize LLM client: {e}", flush=True)
+            use_llm = False
     
     all_step_records = []
     all_rewards = []
