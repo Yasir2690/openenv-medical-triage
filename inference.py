@@ -3,21 +3,42 @@ Inference Script for Medical Triage Environment
 Rule-based and LLM-based agent with structured output format
 
 MANDATORY REQUIREMENTS:
-- Environment variables: API_BASE_URL, MODEL_NAME, HF_TOKEN
+- Environment variables: API_BASE_URL, MODEL_NAME, HF_TOKEN (required)
 - Output format: [START], [STEP], [END] lines to stdout with flush=True
 - Score normalized to [0, 1]
 """
 
 import os
 import random
+import sys
 import numpy as np
 from typing import List, Optional
 from src.environment import MedicalTriageEnv
 from src.models import TriageAction, ESILevel
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+# REQUIRED environment variables for LLM inference
+# These must be explicitly set in your environment configuration
+API_BASE_URL = os.getenv("API_BASE_URL")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.3")
+MODEL_NAME = os.getenv("MODEL_NAME")
+
+# Validate required environment variables
+def validate_env_vars():
+    """Validate that required environment variables are set"""
+    missing = []
+    if not API_BASE_URL:
+        missing.append("API_BASE_URL")
+    if not API_KEY:
+        missing.append("HF_TOKEN or OPENAI_API_KEY")
+    if not MODEL_NAME:
+        missing.append("MODEL_NAME")
+    
+    if missing:
+        print(f"[ERROR] Missing required environment variables: {', '.join(missing)}", flush=True)
+        print("[ERROR] Please set: API_BASE_URL, MODEL_NAME, HF_TOKEN", flush=True)
+        return False
+    return True
+
 BENCHMARK = "medical_triage"
 MAX_STEPS = 50
 
@@ -120,6 +141,15 @@ def run_episode(env, episode_num, use_rule_based=True):
 
 
 def main():
+    # Validate required environment variables
+    env_valid = validate_env_vars()
+    
+    if not env_valid:
+        # Print minimal output to avoid breaking downstream parsing
+        print(f"[START] task=medical_triage_inference env={BENCHMARK} model=undefined", flush=True)
+        print(f"[END] success=false steps=0 score=0.0 rewards=", flush=True)
+        return 1
+    
     print(f"[START] task=medical_triage_inference env={BENCHMARK} model={MODEL_NAME}", flush=True)
     
     env = MedicalTriageEnv(max_steps=MAX_STEPS, random_seed=42)
@@ -178,6 +208,8 @@ def main():
             f"[END] success={success_val} steps={total_steps} score={final_score:.3f} rewards={rewards_str}",
             flush=True
         )
+    
+    return 0 if success else 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
