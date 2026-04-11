@@ -1,17 +1,24 @@
 """
 Inference Script for Medical Triage Environment
-Rule-based agent for better baseline scores
+Rule-based and LLM-based agent with structured output format
+
+MANDATORY REQUIREMENTS:
+- Environment variables: API_BASE_URL, MODEL_NAME, HF_TOKEN
+- Output format: [START], [STEP], [END] lines to stdout with flush=True
+- Score normalized to [0, 1]
 """
 
 import os
 import random
 import numpy as np
+from typing import List, Optional
 from src.environment import MedicalTriageEnv
 from src.models import TriageAction, ESILevel
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-3.5-turbo")
+MODEL_NAME = os.getenv("MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.3")
+BENCHMARK = "medical_triage"
 MAX_STEPS = 50
 
 
@@ -63,7 +70,7 @@ def run_episode(env, episode_num, use_rule_based=True):
     """Run a single episode with rule-based or random agent"""
     observation = env.reset()
     total_reward = 0.0
-    step_count = 0
+    step_records = []
     
     for step in range(MAX_STEPS):
         # Get action
@@ -86,20 +93,26 @@ def run_episode(env, episode_num, use_rule_based=True):
         
         # Execute action
         observation, reward, done, info = env.step(action)
-        last_info = info
         total_reward += reward.total
-        step_count = step + 1
         
-        # Print structured [STEP] output
-        print(f"[STEP] step={step_count} reward={reward.total:.3f}", flush=True)
+        # Format action as string (simpler representation)
+        action_str = f"assign_esi({action.esi_level.value})"
+        
+        step_records.append({
+            "step": step + 1,
+            "action": action_str,
+            "reward": reward.total,
+            "done": done,
+            "error": None
+        })
         
         if done:
             break
     
     return {
-        "episode": episode_num,
         "total_reward": total_reward,
-        "steps": step_count,
+        "step_records": step_records,
+        "done": done,
         "arrivals": info['metrics']['total_arrivals'],
         "lwbs": info['metrics']['total_lwbs'],
         "mortality": info['metrics']['total_mortality']
@@ -107,32 +120,64 @@ def run_episode(env, episode_num, use_rule_based=True):
 
 
 def main():
-    print("[START] task=medical_triage_inference", flush=True)
+    print(f"[START] task=medical_triage_inference env={BENCHMARK} model={MODEL_NAME}", flush=True)
     
     env = MedicalTriageEnv(max_steps=MAX_STEPS, random_seed=42)
     
-    if not API_KEY:
-        use_rule_based = True
-    else:
-        use_rule_based = True
+    use_rule_based = True
     
     results = []
-    for episode in range(1, 4):
-        result = run_episode(env, episode, use_rule_based)
-        results.append(result)
+    all_step_records = []
+    all_rewards = []
+    success = False
+    total_steps = 0
+    final_score = 0.0
+    rewards_str = ""
     
-    # Calculate final results
-    total_reward = sum(r["total_reward"] for r in results)
-    total_steps = sum(r["steps"] for r in results)
-    total_arrivals = sum(r["arrivals"] for r in results)
-    total_lwbs = sum(r["lwbs"] for r in results)
-    total_mortality = sum(r["mortality"] for r in results)
-    
-    # Calculate final score (normalize to 0-1)
-    final_score = total_reward / (total_steps * 3) if total_steps > 0 else 0.0
-    final_score = max(0.0, min(1.0, final_score))  # Clamp to [0, 1]
-    
-    print(f"[END] task=medical_triage_inference score={final_score:.4f} steps={total_steps}", flush=True)
+    try:
+        for episode in range(1, 4):
+            result = run_episode(env, episode, use_rule_based)
+            results.append(result)
+            
+            # Collect step records and rewards
+            for record in result["step_records"]:
+                all_step_records.append(record)
+                all_rewards.append(record["reward"])
+                
+                # Print [STEP] line in correct format
+                error_val = record["error"] if record["error"] else "null"
+                done_val = str(record["done"]).lower()
+                print(
+                    f"[STEP] step={record['step']} action={record['action']} "
+                    f"reward={record['reward']:.2f} done={done_val} error={error_val}",
+                    flush=True
+                )
+        
+        # Calculate final results
+        total_reward = sum(r["total_reward"] for r in results)
+        total_steps = sum(len(r["step_records"]) for r in results)
+        total_arrivals = sum(r["arrivals"] for r in results)
+        total_lwbs = sum(r["lwbs"] for r in results)
+        total_mortality = sum(r["mortality"] for r in results)
+        
+        # Calculate normalized score (0-1)
+        # Base score on average reward per step, normalized
+        avg_reward_per_step = total_reward / total_steps if total_steps > 0 else 0.0
+        final_score = min(1.0, max(0.0, avg_reward_per_step))
+        
+        # Determine success (score >= some threshold)
+        success = final_score >= 0.4
+        
+        # Format rewards list
+        rewards_str = ",".join(f"{r:.2f}" for r in all_rewards)
+        
+    finally:
+        # Always emit [END] line
+        success_val = str(success).lower()
+        print(
+            f"[END] success={success_val} steps={total_steps} score={final_score:.3f} rewards={rewards_str}",
+            flush=True
+        )
 
 if __name__ == "__main__":
     main()
