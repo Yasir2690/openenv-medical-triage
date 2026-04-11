@@ -61,8 +61,6 @@ def rule_based_agent(observation):
 
 def run_episode(env, episode_num, use_rule_based=True):
     """Run a single episode with rule-based or random agent"""
-    print(f"STEP: Episode {episode_num}")
-    
     observation = env.reset()
     total_reward = 0.0
     step_count = 0
@@ -92,14 +90,11 @@ def run_episode(env, episode_num, use_rule_based=True):
         total_reward += reward.total
         step_count = step + 1
         
-        if step % 10 == 0:
-            print(f"  Step {step}: Reward={reward.total:.3f}, LWBS={observation.lwbs_rate:.1%}, Patients={observation.total_patients}")
+        # Print structured [STEP] output
+        print(f"[STEP] step={step_count} reward={reward.total:.3f}", flush=True)
         
         if done:
-            print(f"  Episode finished at step {step+1}")
             break
-    
-    print(f"END: Episode {episode_num} - Total Reward: {total_reward:.3f}")
     
     return {
         "episode": episode_num,
@@ -112,38 +107,32 @@ def run_episode(env, episode_num, use_rule_based=True):
 
 
 def main():
-    print("START: Medical Triage Environment Inference")
+    print("[START] task=medical_triage_inference", flush=True)
     
-    print("STEP: Initializing environment")
     env = MedicalTriageEnv(max_steps=MAX_STEPS, random_seed=42)
     
     if not API_KEY:
-        print("STEP: No API_KEY found. Running with rule-based agent...")
         use_rule_based = True
     else:
-        print("STEP: API configured. Running with rule-based agent...")
         use_rule_based = True
     
-    print("STEP: Running episodes")
     results = []
     for episode in range(1, 4):
         result = run_episode(env, episode, use_rule_based)
         results.append(result)
     
-    # Print summary
-    print("STEP: Calculating final results")
+    # Calculate final results
     total_reward = sum(r["total_reward"] for r in results)
+    total_steps = sum(r["steps"] for r in results)
     total_arrivals = sum(r["arrivals"] for r in results)
     total_lwbs = sum(r["lwbs"] for r in results)
     total_mortality = sum(r["mortality"] for r in results)
     
-    print(f"STEP: Average Reward: {total_reward/3:.3f}")
-    print(f"STEP: Total Patients: {total_arrivals}")
-    if total_arrivals > 0:
-        print(f"STEP: LWBS Rate: {total_lwbs/total_arrivals:.1%}")
-        print(f"STEP: Mortality Rate: {total_mortality/total_arrivals:.1%}")
+    # Calculate final score (normalize to 0-1)
+    final_score = total_reward / (total_steps * 3) if total_steps > 0 else 0.0
+    final_score = max(0.0, min(1.0, final_score))  # Clamp to [0, 1]
     
-    print("END: Medical Triage Environment Inference - All episodes complete")
+    print(f"[END] task=medical_triage_inference score={final_score:.4f} steps={total_steps}", flush=True)
 
 if __name__ == "__main__":
     main()
