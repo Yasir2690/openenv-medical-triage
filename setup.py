@@ -7,7 +7,8 @@ setup(
     include_package_data=True,
     entry_points={
         "console_scripts": [
-            "openenv-server = server.app:start_server",
+            "openenv-server = server.app:main",
+            "server = server.app:main",
         ],
     },
     python_requires=">=3.10",
