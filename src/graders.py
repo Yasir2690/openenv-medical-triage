@@ -210,3 +210,80 @@ def grade_hard_task(episode_history):
     volume_bonus = 0.05 if total_patients >= 50 else (total_patients / 50) * 0.05
 
     return round(min(1.0, mortality_score + critical_accuracy + speed_bonus + prevention_score + volume_bonus), 4)
+
+
+def grade_hard_task_mci(episode_history):
+    """
+    Hard Task: Mass Casualty Incident Management
+    Scores based on mortality rate, critical patient outcomes, and surge management.
+    """
+    if not episode_history:
+        return 0.0
+
+    total_patients = 0
+    deaths = 0
+    critical_seen_in_time = 0
+    total_critical = 0
+    surge_capacity_activated = False
+
+    for step in episode_history:
+        info = step.get('info', {})
+        metrics = info.get('metrics', {})
+        patient = step.get('patient')
+
+        if metrics.get('total_arrivals', 0) > total_patients:
+            total_patients = metrics['total_arrivals']
+            deaths = metrics.get('total_deaths', 0)
+
+        if patient and patient.esi_level in [1, 2]:
+            total_critical += 1
+            if patient.triage_time is not None:
+                wait = (patient.triage_time - patient.arrival_time).total_seconds() / 60
+                if patient.esi_level == 1 and wait <= 5:
+                    critical_seen_in_time += 1
+                elif patient.esi_level == 2 and wait <= 15:
+                    critical_seen_in_time += 1
+        
+        if info.get('surge_capacity_activated', False):
+            surge_capacity_activated = True
+
+    if total_patients == 0:
+        return 0.0
+
+    mortality_score = max(0.0, 1.0 - (deaths / total_patients)) * 0.5
+    
+    critical_care_score = 0.0
+    if total_critical > 0:
+        critical_care_score = (critical_seen_in_time / total_critical) * 0.4
+
+    surge_bonus = 0.1 if surge_capacity_activated else 0.0
+
+    return round(min(1.0, mortality_score + critical_care_score + surge_bonus), 4)
+
+
+def grade_bonus_task(episode_history):
+    """
+    Bonus Task: Advanced Scenario with Complex Cases
+    Scores based on diagnostic accuracy and handling of rare/complex conditions.
+    """
+    if not episode_history:
+        return 0.0
+
+    correct_diagnoses = 0
+    total_complex_cases = 0
+
+    for step in episode_history:
+        patient = step.get('patient')
+        action = step.get('action')
+
+        if patient and getattr(patient, 'is_complex_case', False):
+            total_complex_cases += 1
+            if action and hasattr(action, 'final_diagnosis') and action.final_diagnosis == patient.ground_truth_diagnosis:
+                correct_diagnoses += 1
+
+    if total_complex_cases == 0:
+        return 0.0
+
+    accuracy_score = (correct_diagnoses / total_complex_cases)
+    
+    return round(accuracy_score, 4)
