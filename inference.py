@@ -50,9 +50,9 @@ except ImportError:
     HAS_OPENAI = False
 
 # REQUIRED environment variables for inference
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "mistral-7b")
+API_BASE_URL = os.getenv("API_BASE_URL")
+API_KEY = os.getenv("API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 # Task configuration
 TASK_NAME = "medical_triage_inference"
