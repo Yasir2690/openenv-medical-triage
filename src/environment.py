@@ -16,7 +16,42 @@ from .models import (
 )
 from .triage_logic import ESIGuidelines, ClinicalDeteriorationPredictor
 from .simulation import PatientGenerator, ResourceManager
+from .graders import grade_easy_task, grade_medium_task, grade_hard_task
 
+# =================================================================
+# Task Definitions & Registration
+# =================================================================
+# We explicitly define and register tasks here to ensure they are always found
+# by the validator, bypassing any file-based discovery issues.
+
+TASKS = [
+    {
+        "name": "easy_basic_triage",
+        "description": "Correctly assign ESI levels to patients with clear presentations.",
+        "grader": grade_easy_task,
+    },
+    {
+        "name": "medium_resource_allocation",
+        "description": "Manage 25+ patients with limited resources during a surge.",
+        "grader": grade_medium_task,
+    },
+    {
+        "name": "hard_mass_casualty",
+        "description": "Handle a 40+ patient mass casualty incident with surge capacity activation.",
+        "grader": grade_hard_task,
+    },
+]
+
+def register_tasks():
+    """
+    A simple function to return the list of defined tasks.
+    This makes the registration explicit and verifiable.
+    """
+    return TASKS
+
+# =================================================================
+# Environment Class
+# =================================================================
 
 class MedicalTriageEnv:
     """
@@ -47,6 +82,9 @@ class MedicalTriageEnv:
         self.resource_manager = ResourceManager()
         self.deterioration_predictor = ClinicalDeteriorationPredictor()
         
+        # Explicitly register tasks on initialization
+        self.tasks = register_tasks()
+
         self.step_count = 0
         self.current_time = datetime.now()
         self.patients: Dict[str, Patient] = {}
