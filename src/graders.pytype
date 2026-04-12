@@ -1,1 +1,0 @@
-    return min(1.0, triage_accuracy + mortality_reduction + surge_management + coordination)  src\graders.py 

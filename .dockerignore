@@ -1,0 +1,62 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv
+env
+ENV
+build
+develop-eggs
+dist
+downloads
+eggs
+.eggs
+lib
+lib64
+parts
+sdist
+var
+wheels
+*.egg-info
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.coverage
+htmlcov
+.tox
+.hypothesis
+
+# Documentation
+docs/_build
+
+# Dependencies
+requirements.txt.bak
+uv.lock
+
+# Environment files
+.env
+.env.example
+
+# Misc
+.openenv
+help.txt
+docker\ file.txt

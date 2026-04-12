@@ -16,7 +16,42 @@ from .models import (
 )
 from .triage_logic import ESIGuidelines, ClinicalDeteriorationPredictor
 from .simulation import PatientGenerator, ResourceManager
+from .graders import grade_easy_task, grade_medium_task, grade_hard_task
 
+# =================================================================
+# Task Definitions & Registration
+# =================================================================
+# We explicitly define and register tasks here to ensure they are always found
+# by the validator, bypassing any file-based discovery issues.
+
+TASKS = [
+    {
+        "name": "easy_basic_triage",
+        "description": "Correctly assign ESI levels to patients with clear presentations.",
+        "grader": grade_easy_task,
+    },
+    {
+        "name": "medium_resource_allocation",
+        "description": "Manage 25+ patients with limited resources during a surge.",
+        "grader": grade_medium_task,
+    },
+    {
+        "name": "hard_mass_casualty",
+        "description": "Handle a 40+ patient mass casualty incident with surge capacity activation.",
+        "grader": grade_hard_task,
+    },
+]
+
+def register_tasks():
+    """
+    A simple function to return the list of defined tasks.
+    This makes the registration explicit and verifiable.
+    """
+    return TASKS
+
+# =================================================================
+# Environment Class
+# =================================================================
 
 class MedicalTriageEnv:
     """
@@ -47,6 +82,9 @@ class MedicalTriageEnv:
         self.resource_manager = ResourceManager()
         self.deterioration_predictor = ClinicalDeteriorationPredictor()
         
+        # Explicitly register tasks on initialization
+        self.tasks = register_tasks()
+
         self.step_count = 0
         self.current_time = datetime.now()
         self.patients: Dict[str, Patient] = {}
@@ -146,7 +184,7 @@ class MedicalTriageEnv:
         return True
     
     def _apply_action(self, action: TriageAction) -> float:
-        """Apply action effects"""
+        """Apply action effects and return immediate reward"""
         if action.patient_id not in self.patients:
             return -0.5
         
@@ -186,6 +224,18 @@ class MedicalTriageEnv:
                     wait_time = (patient.seen_time - patient.arrival_time).total_seconds() / 60
                     if patient.assigned_esi in [1, 2]:
                         self.metrics["critical_wait_times"].append(wait_time)
+                        # BONUS: Fast triage of critical patients
+                        if wait_time < 15:
+                            reward += 0.05
+                        # BONUS: Prevented deterioration by seeing patient quickly
+                        if not patient.has_deteriorated:
+                            reward += 0.05  # Reward for prevented deterioration
+        
+        # STEP-LEVEL BONUS: Maintaining low LWBS rate demonstrates good overall performance
+        if self.metrics["total_arrivals"] > 0:
+            current_lwbs = self.metrics["total_lwbs"] / self.metrics["total_arrivals"]
+            if current_lwbs < 0.02:  # If LWBS < 2%, small bonus
+                reward += 0.02
         
         return max(-1.0, min(1.0, reward))
     
@@ -233,11 +283,28 @@ class MedicalTriageEnv:
                 self._add_patient(new_patient)
     
     def _update_patient_statuses(self) -> None:
-        """Update patient outcomes"""
+        """Update patient outcomes and detect deterioration"""
         to_remove = []
         
         for patient_id, patient in self.patients.items():
             wait_time = patient.wait_time_minutes
+            
+            # DETERIORATION CHECK: If patient has high acuity and has been waiting, they may deteriorate
+            if patient.assigned_esi in [1, 2] and not patient.seen_time:
+                # High-risk critical patients deteriorate faster
+                deterioration_threshold = 10 if patient.assigned_esi == 1 else 25
+                if wait_time and wait_time > deterioration_threshold and not patient.has_deteriorated:
+                    patient.has_deteriorated = True
+                    patient.deterioration_risk = 0.8
+                    patient.deterioration_events.append({
+                        'time': self.current_time,
+                        'event': f'Patient deteriorated after {wait_time:.0f} min wait',
+                        'severity': 'critical'
+                    })
+                    # Deterioration increases mortality risk
+                    if np.random.random() < 0.15:  # 15% chance of mortality if deteriorated
+                        patient.mortality = True
+                        self.metrics["total_mortality"] += 1
             
             # LWBS
             if not patient.seen_time and not patient.discharged_time and not patient.left_without_being_seen:

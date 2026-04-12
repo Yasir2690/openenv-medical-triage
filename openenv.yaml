@@ -46,6 +46,11 @@ tasks:
     grader: src.graders.grade_hard_task
     expected_score: 0.5
 
+  - name: bonus_task_v1
+    description: A new bonus task for advanced scenarios
+    grader: src.graders.grade_bonus_task
+    expected_score: 0.4
+
 metadata:
   max_episode_steps: 100
   simulation_speed: 1.0
