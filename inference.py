@@ -50,9 +50,11 @@ except ImportError:
     HAS_OPENAI = False
 
 # REQUIRED environment variables for inference
+# API_BASE_URL and API_KEY must be injected by validator - no fallbacks
 API_BASE_URL = os.getenv("API_BASE_URL")
 API_KEY = os.getenv("API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME")
+# MODEL_NAME may need a default for LLM inference
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-3.5-turbo")
 
 # Task configuration
 TASK_NAME = "medical_triage_inference"
