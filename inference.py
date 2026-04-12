@@ -38,6 +38,7 @@ import sys
 import numpy as np
 import textwrap
 from typing import List, Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from src.environment import MedicalTriageEnv
 from src.models import TriageAction, ESILevel, VitalSign
@@ -323,7 +324,12 @@ def llm_agent(client, observation, step_num, conversation_history, episode_state
             future = executor.submit(_call_llm)
             try:
                 esi_level = future.result(timeout=5)  # 5-second timeout
-            except (FutureTimeoutError, Exception) as e:
+            except FutureTimeoutError:
+                # Fallback to rule-based
+                print(f"[DEBUG] LLM call timed out, using rule-based agent", flush=True)
+                return rule_based_agent(observation, episode_state)
+            except Exception as e:
+                print(f"[DEBUG] LLM call failed: {e}, using rule-based agent", flush=True)
                 # Fallback to rule-based
                 return rule_based_agent(observation, episode_state)
         
@@ -417,7 +423,11 @@ def main():
     client = None
     use_llm = False
     
-    if HAS_OPENAI and API_KEY and API_BASE_URL and MODEL_NAME:
+    # Validate that required API credentials are available
+    if not API_KEY or not API_BASE_URL:
+        print(f"[DEBUG] Missing API credentials: API_KEY={bool(API_KEY)}, API_BASE_URL={bool(API_BASE_URL)}", flush=True)
+    
+    if HAS_OPENAI and API_KEY and API_BASE_URL:
         try:
             # Use the provided API_BASE_URL and API_KEY environment variables
             # This ensures we use the LiteLLM proxy provided during validation
@@ -426,10 +436,12 @@ def main():
                 base_url=API_BASE_URL
             )
             use_llm = True
-            print(f"[DEBUG] LLM mode enabled with API_BASE_URL={API_BASE_URL}", flush=True)
+            print(f"[DEBUG] LLM mode enabled with API_BASE_URL={API_BASE_URL} MODEL_NAME={MODEL_NAME}", flush=True)
         except Exception as e:
             print(f"[DEBUG] Failed to initialize LLM client: {e}", flush=True)
             use_llm = False
+    else:
+        print(f"[DEBUG] LLM mode disabled: HAS_OPENAI={HAS_OPENAI}, API_KEY exists={bool(API_KEY)}, API_BASE_URL exists={bool(API_BASE_URL)}", flush=True)
     
     all_step_records = []
     all_rewards = []
